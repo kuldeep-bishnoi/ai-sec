@@ -33,22 +33,6 @@ Non-interactive examples:
 
 Third-party tools are downloaded from their official installers or GitHub releases; review the script before running in production.
 
-### From source (Go 1.21+)
-
-From a clone of this repository:
-
-```bash
-go install ./cmd/ai-sec
-```
-
-After you publish the module under a public path (see below), others can run:
-
-```bash
-go install github.com/YOUR_ORG/ai-sec/cmd/ai-sec@latest
-```
-
-Ensure `$(go env GOPATH)/bin` is on your `PATH`.
-
 ### Prebuilt binaries
 
 After you publish [GitHub Releases](https://docs.github.com/en/repositories/releasing-projects-on-github/managing-releases-in-a-repository), users can download `ai-sec_*_linux_amd64.tar.gz` (and similar) and put the `ai-sec` binary on `PATH`.
@@ -56,20 +40,91 @@ After you publish [GitHub Releases](https://docs.github.com/en/repositories/rele
 ### Build locally
 
 ```bash
-make build    # ./bin/ai-sec
-make install  # install to GOPATH/bin
+make build         # ./bin/ai-sec
+make install       # install to GOPATH/bin
+make install-linux # Linux: chmod +x scripts/install-linux.sh && ./scripts/install-linux.sh --source
 ```
 
-## Publish for the public
+## After installation
 
-1. **Push the repo** to GitHub (or GitLab) and pick an **open-source license** (e.g. MIT, Apache-2.0).
-2. **Tag a release**: `git tag v1.0.0 && git push origin v1.0.0`
-3. **Ship binaries** (pick one):
-   - **GoReleaser** (recommended): install [GoReleaser](https://goreleaser.com/install/), set `GITHUB_TOKEN`, run `goreleaser release --clean` (often via GitHub Actions on tag).
-   - **Manual**: run `make dist` and upload files under `dist/` plus `checksums.txt` to the release page.
+1. **Confirm the binary** is on `PATH` (installer uses `~/.local/bin` by default):
 
-4. **Module path**: replace `ai-sec` in `go.mod` with your module path (e.g. `github.com/you/ai-sec`) so `go install` works for others.
+   ```bash
+   export PATH="$HOME/.local/bin:$PATH"   # add to ~/.bashrc or ~/.zshrc if needed
+   ai-sec --version
+   ```
+
+2. **Check optional scanners** (gitleaks, syft, grype, semgrep, …):
+
+   ```bash
+   ai-sec doctor
+   ai-sec install-tools              # print suggested install commands
+   ai-sec install-tools --yes        # best-effort install (syft/grype on Linux)
+   ```
+
+## Run commands (by workflow)
+
+All examples use `--repo` when the scan target is not the current directory. Reports and indexes are stored under `<repo>/.ai-sec/`.
+
+### Scan a repository
+
+```bash
+# Text report (default) — compact list, limited rows
+ai-sec scan /path/to/repo --format text --view compact --limit 50
+
+# JSON output (good for piping)
+ai-sec scan /path/to/repo --format json
+
+# Progress only on stderr; no LLM during scan (default)
+ai-sec scan /path/to/repo --format text --quiet
+
+# Optional: Gemini scan-time hints (needs GOOGLE_API_KEY or GEMINI_API_KEY)
+ai-sec scan /path/to/repo --llm gemini
+
+# Secrets: hide values in output; force redaction in CI
+ai-sec scan /path/to/repo --hide-secrets
+ai-sec scan /path/to/repo --redact-secrets
+
+# Policy (OPA Rego)
+ai-sec scan /path/to/repo --policy /path/to/policy.rego
+```
+
+### List findings and inspect details
+
+Requires a prior scan (writes `.ai-sec/last_report.json`).
+
+```bash
+ai-sec findings --repo /path/to/repo
+ai-sec findings --repo /path/to/repo --severity CRITICAL,HIGH
+ai-sec findings --repo /path/to/repo --source sast,taint
+
+ai-sec show <finding_id> --repo /path/to/repo
+```
+
+### Explain or remediate (LLM)
+
+```bash
+# Re-explain a finding (ollama or gemini)
+ai-sec explain <finding_id> --repo /path/to/repo --llm gemini
+
+# Remediation: Gemini (set API key in the environment)
+export GOOGLE_API_KEY=...
+ai-sec remediate <finding_id> --repo /path/to/repo --llm gemini --gemini-model gemini-flash-latest --strict
+
+# Remediation: local Ollama
+ai-sec remediate <finding_id> --repo /path/to/repo --llm ollama --ollama-url http://127.0.0.1:11434 --ollama-timeout 300
+
+# Apply generated patch only after strict validation passes
+ai-sec remediate <finding_id> --repo /path/to/repo --llm gemini --strict --apply
+```
+
+### RAG index (optional, for embeddings)
+
+```bash
+ai-sec index /path/to/repo --embeddings
+ai-sec index /path/to/repo --embeddings --ollama-url http://127.0.0.1:11434 --ollama-embed-model nomic-embed-text
+```
 
 ## Optional external tools
 
-Scanners call `gitleaks`, `syft`, `grype`, `cdxgen`, `semgrep`, and `opa` when installed. Use `ai-sec doctor` and `ai-sec install-tools` for guidance.
+Scanners call `gitleaks`, `syft`, `grype`, `cdxgen`, `semgrep`, and `opa` when installed. Use `ai-sec doctor` and `ai-sec install-tools` for guidance. On Linux, `./scripts/install-linux.sh` can install them interactively alongside `ai-sec`.
